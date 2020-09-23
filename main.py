@@ -58,25 +58,48 @@ def handle_api_exceptions(max_attempts=1):
     return decorator
 
 
+def get_last_id(reddit):
+    " return the last ID posted on /r/all"
+    last_id = None
+    while not last_id:
+        try:
+            last_id = int(reddit.subreddit("all").new(limit=1)[0], 36)
+        except:
+            continue
+    return last_id
+
+
+def readwords():
+    " return a list of word from the file wlist.txt "
+    with open("wlist.txt", "r") as f:
+        return f.read().split()
+
+
+def removeolds(l: list, last_id: str):
+    "removes old IDs from the list"
+    pos = len(l) // 2
+    while True:
+        if int(l[pos], 36) >= last_id:
+            if int(l[pos - 1], 36) < last_id:
+                return l[pos:]
+            else:
+                pos -= pos // 2
+                continue
+        else:
+            pos += pos // 2
+
+
 def wait(reddit, target) -> None:
     """
     Hold the script and watch for the latest IDS untill it's close enough
     """
     sleep_time = 3
     while True:
-        try:
-            m = max(
-                [
-                    int(submission.id, 36)
-                    for submission in reddit.subreddit("all").new(limit=2)
-                ]
-            )
-        except:
-            continue
-        distance = int(target, 36) - m
+        last_id = get_last_id(reddit)
+        distance = int(target, 36) - last_id
         print("distance: ", distance)
         if distance <= 1000:
-            sleep_time = 0
+            sleep_time = 1
         if distance <= 200:
             return
         time.sleep(sleep_time)
@@ -114,6 +137,13 @@ def delete(submited):
     submited.delete()
 
 
+def getID(target, reddit, subreddit, title, flair):
+    " Wait untill it's close enough and then spams posts to get the ID"
+    wait(reddit, target)
+    subreddit = reddit.subreddit(subreddit)
+    post(subreddit, title, flair, target)
+
+
 def main(
     clientid: str,
     clientsecret: str,
@@ -128,15 +158,16 @@ def main(
     # set the default flair to None if not passed
     if not flair:
         flair = None
-    # leggiti https://praw.readthedocs.io/en/latest/getting_started/authentication.html
+    if not target:
+        target = None
+    # read https://praw.readthedocs.io/en/latest/getting_started/authentication.html
     reddit = praw.Reddit(
         client_id=clientid,
         client_secret=clientsecret,
         password=password,
-        user_agent=f"testscript by /u/{username}",
+        user_agent=f"bot by /u/{username}",
         username=username,
     )
-    # flag che fa roba per reddit
     reddit.validate_on_submit = True
     try:
         reddit.user.me()
@@ -144,12 +175,12 @@ def main(
         print("Authentication failed")
         return
 
-    # aspetta fino a che non siamo vicini al target
-    wait(reddit, target)
-
-    subreddit = reddit.subreddit(subreddit)
-
-    post(subreddit, title, flair, target)
+    if target:
+        getID(target, reddit, subreddit, title, flair)
+    else:
+        l = removeolds(readwords(), get_last_id(reddit))
+        for target in l:
+            getID(target, reddit, subreddit, title, flair)
 
 
 if __name__ == "__main__":
@@ -176,7 +207,14 @@ if __name__ == "__main__":
     parser.add_argument("--username", type=str, help="Your reddit username")
     parser.add_argument("--title", type=str, help="The post title (can not be edited)")
     parser.add_argument("--subreddit", type=str, help="Your subreddit target")
-    parser.add_argument("--target", type=str, help="The target ID")
+    parser.add_argument(
+        "--target",
+        type=str,
+        help=(
+            "The target ID if not target is specified will use a word list in the file"
+            " wlist.txt"
+        ),
+    )
     parser.add_argument(
         "flairid",
         type=str,
